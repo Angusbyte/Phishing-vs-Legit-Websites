@@ -1,0 +1,685 @@
+---
+title: "Predictive Modeling for Website Legitimacy"
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+date: "2024-04-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## **Predicting Modelling For Website Legitimacy: Differentiating Between Legitimate Websites and Phishing sites.**
+
+*By Angus Liang*
+
+Phishing websites pose a significant threat to online security, as they aim to deceive users into disclosing sensitive information, such as login credentials, financial details and other private user data.
+
+The objective for this report is to create robust predictive models capable of identifying legitimate or Phishing websites. By utilising machine learning algorithms, this paper will leverage accurate classifiers that can distinguish between the two, therefore improving measures to protect users from online fraud.
+
+### Creating the data set
+
+This is a modified version of the PhiUSIIL Phishing data, hosted by the UCI Machine Learning Archive. The references is in the appendix at the conclusion of this report.
+
+```{r}
+rm(list = ls())
+Phish <- read.csv("PhishingData.csv")
+set.seed(31484808) 
+L <- as.data.frame(c(1:50))
+L <- L[sample(nrow(L), 10, replace = FALSE),]
+Phish <- Phish[(Phish$A01 %in% L),]
+PD <- Phish[sample(nrow(Phish), 2000, replace = FALSE),] # sample of 2000 rows
+```
+
+```{r}
+head(PD)
+```
+
+### Data Exploration and Pre-processing
+
+First let, us explore the proportions of phishing websites to legitimate websites. Where
+
+-   1 indicates a phishing website
+
+-   0 indicates a legitimate website
+
+```{r}
+count <- table(PD$Class)
+proportions <- prop.table(count)
+print(proportions)
+```
+
+There are 65.65% of legitimate websites and 34.35% of phishing websites in this sample.
+
+Let us now explore the data
+
+```{r}
+str(PD)
+```
+
+Notably, website attribute with real valued attributes are A01, A04, A08, A12, A17, A18, A22, A23 and A24. The rest of the website attributes seemingly contains binary outcomes. Before finding statistical summary of those with real valued attributes, let us explore other attributes with proportions.
+
+```{r}
+counts <- table(PD[c('A02')])
+print(counts)
+counts <- table(PD[c('A03')])
+print(counts)
+counts <- table(PD[c('A05')])
+print(counts)
+counts <- table(PD[c('A06')])
+print(counts)
+counts <- table(PD[c('A07')])
+print(counts)
+counts <- table(PD[c('A09')])
+print(counts)
+```
+
+-   Interestingly attribute A02 contains mostly 0s and 13 other unique non-zero values.
+
+-   Attribute A03 has strange proportions with 99.99..% of response is 0s. This column will be omitted.
+
+-   A05, similar to A02 contains mostly 0s with 6 other unique non-zero values. However only 9 websites contain differing values out of 2000. This is strange proportions and the attribute will be omitted
+
+-   A06 is 13% to 87% split of 1s and 0s.
+
+-   A07, similar to A03 has extreme proportions, and therefore will be omitted.
+
+-   A09 has only 53 1s response. It may be considered to be omitted.
+
+Let us continue the exploration
+
+```{r}
+counts <- table(PD[c('A10')])
+print(counts)
+counts <- table(PD[c('A11')])
+print(counts)
+counts <- table(PD[c('A13')])
+print(counts)
+counts <- table(PD[c('A14')])
+print(counts)
+counts <- table(PD[c('A15')])
+print(counts)
+counts <- table(PD[c('A16')])
+print(counts)
+counts <- table(PD[c('A19')])
+print(counts)
+counts <- table(PD[c('A20')])
+print(counts)
+```
+
+-   A10 has only 93 1s response compared to 1885 0s.
+
+-   A11 has 1928 zeros, with 10 other unique values. This will be omitted
+
+-   A13 has 1973 zeros, with 3 other unique values. This will be omitted
+
+-   A14 has 1756 0s with 220 1s
+
+-   A15 has 1722 zeros and 256 1s
+
+-   A16 has 1892 zeros with 82 1s. It may be considered to be omitted
+
+-   A19 has 1812 0s and 172 1s. It may be considered to be omitted
+
+-   A20 has 1485 0s and 493 1s.
+
+Let us finally explore the last seemingly binary outcomes attributes
+
+```{r}
+counts <- table(PD[c('A21')])
+print(counts)
+counts <- table(PD[c('A25')])
+print(counts)
+```
+
+-   A21 has 1934 0s response, with 4 other unique non zero values. It will be omitted
+
+-   A25 has 1973 0s and 5 other nonzero values. This will be omitted.
+
+Let us now explore the summary statistics for the real-valued attribute A01, A04, A08, A12, A17, A18, A22, A23 and A24
+
+```{r}
+
+summary_statistics <- function(x){
+    c(mean = mean(x, na.rm = TRUE),
+    sd = sd(x, na.rm = TRUE),
+    median = median(x, na.rm = TRUE),
+    min = min(x, na.rm = TRUE),
+    max = max(x, na.rm = TRUE))
+}
+
+sapply(PD[c('A01', 'A04', 'A08', 'A12', 'A17', 'A18', 'A22', 'A23', 'A24')], summary_statistics)
+```
+
+Notably, there are multiple missing values (NA) in each attribute except A01. There are seemingly outliers in some attributes such as A01.
+
+Let us now pre-process the data before modelling.
+
+Remove websites with missing values.
+
+```{r}
+PD_clean <- na.omit(PD)
+dim(PD_clean)
+```
+
+Approximately 21.6% of websites in the sample has been removed.
+
+Let us now remove attributes that will not be contained in model fitting. This is due to poor data quality, with value distributions that is likely not necessary to improve performance of classification of phishing sites. These website attributes are: A03, A05, A07, A11, A13, A21 and A25.
+
+```{r}
+attributes_removal <- c('A03', 'A05', 'A07', 'A11', 'A13', 'A21', 'A25')
+PD_clean <- PD_clean[, !names(PD) %in% attributes_removal]
+dim(PD_clean)
+```
+
+Although there are some attributes considered to be removed, further optimisations in model's performance in classification will determine if this step is necessary or not. I will further note future data transformation for performance optimisations.
+
+### Training and Testing Data for Modelling
+
+Dividing the PD data into a 70% training and 30% test set
+
+```{r}
+set.seed(31484808) 
+PD_clean$Class = as.factor(PD_clean$Class)
+# Split 70 30 
+train.row = sample(1:nrow(PD_clean), 0.7*nrow(PD_clean))
+PD_clean.train = PD_clean[train.row,]
+PD_clean.test = PD_clean[-train.row,]
+```
+
+### Modelling
+
+In this section, we are implementing various classification models.
+
+Let us first load all the packages.
+
+```{r}
+suppressWarnings({ 
+ library(knitr, quietly = TRUE) 
+ library(tree, quietly = TRUE)
+ library(e1071, quietly = TRUE)
+ library(ROCR, quietly = TRUE)
+ library(randomForest, quietly = TRUE)
+ library(adabag, quietly = TRUE)
+ library(rpart, quietly = TRUE)
+}) 
+```
+
+#### i. Decision Tree
+
+```{r}
+PD.tree = tree(Class~., data = PD_clean.train)
+summary(PD.tree)
+```
+
+```{r}
+plot(PD.tree)
+text(PD.tree, pretty = 0)
+```
+
+Using the test data, let us create a confusion matrix of this decision tree model; classifying 'phishing (1)' and 'legitimate (0)' websites
+
+```{r}
+PD.predtree = predict(PD.tree, PD_clean.test, type = 'class')
+
+t1 = table(Predicted_Class = PD.predtree, Actual_Class = PD_clean.test$Class)
+print(t1)
+```
+
+From this decision tree performance, the classification accuracy is **74.10**%
+
+#### ii. Naive Bayes
+
+```{r}
+# Create Bayes model 
+PD.bayes = naiveBayes(Class ~. , data = PD_clean.train )
+```
+
+Using the test data, let us create a confusion matrix of this Naive Bayes model; classifying 'phishing (1)' and 'legitimate (0)' websites
+
+```{r}
+# Predictions and Confusion matrix 
+PD.predbayes = predict(PD.bayes, PD_clean.test)
+t2 = table(Predicted_Class = PD.predbayes, Actual_Class = PD_clean.test$Class)
+print(t2)
+```
+
+From this Naive Bayes classification performance, the accuracy = **50.74**%
+
+#### iii. Bagging
+
+```{r}
+# Create Bagging Model 
+PD.bag = bagging(Class ~., data = PD_clean.train, mfinals = 5)
+```
+
+```{r}
+PDpred.bag = predict.bagging(PD.bag, PD_clean.test)
+# Predicted Class from Bagging Model 
+pred_class = as.factor(PDpred.bag$class)
+# Confusion Matrix
+t3 = PDpred.bag$confusion
+t3
+```
+
+As shown, the classification accuracy of the Bagging Model is **75.15**%
+
+#### Boosting
+
+```{r}
+# Create Boosting Model 
+PD.Boost = boosting(Class~. , data = PD_clean.train, mfinal=10)
+```
+
+```{r}
+# Prediction and Confusion Matrix
+PDpred.boost <- predict.boosting(PD.Boost, newdata=PD_clean.test)
+t4 = PDpred.boost$confusion
+t4
+```
+
+As shown, the classification accuracy of the Boosting Model is **74.52**%
+
+#### Random Forest
+
+```{r}
+# Create Model 
+set.seed(31484808)
+PD.rf = randomForest(Class ~. , data = PD_clean.train, na.action = na.exclude)
+```
+
+```{r}
+# Model prediction and confusion matrix
+PDpredrf = predict(PD.rf, PD_clean.test)
+t5 = table(Predicted_Class = PDpredrf, Actual_Class = PD_clean.test$Class)
+t5
+```
+
+As shown, the classification accuracy of the Random Forest Model is **74.73**%
+
+### ROC Curve and AUC score for all Classifiers
+
+```{r}
+# Computing a simple ROC Curve (x-axis: fpr, y-axis: tpr)
+# Labels are actual values, predictors are probabilities of class 
+PD.pred.tree = predict(PD.tree, PD_clean.test, type = 'vector')
+PDDpred = prediction(PD.pred.tree[,2], PD_clean.test$Class)
+PDDperf = performance(PDDpred, "tpr", "fpr")
+
+# Naive Bayes Performance
+PDpred.bayes = predict(PD.bayes, PD_clean.test, type = 'raw')
+PDBpred = prediction(PDpred.bayes[,2], PD_clean.test$Class)
+PDBperf = performance(PDBpred, "tpr", "fpr")
+# Bagging Performance 
+PDBagpred <- prediction(PDpred.bag$prob[,2], PD_clean.test$Class)
+PDBagperf <- performance(PDBagpred,"tpr","fpr")
+# Boosting Performance
+PDBoostpred <- prediction(PDpred.boost$prob[,2], PD_clean.test$Class)
+PDBoostperf <- performance(PDBoostpred,"tpr","fpr")
+# Random Forest 
+PDpred.rf <- predict(PD.rf, PD_clean.test, type="prob")
+PDFpred <- prediction(PDpred.rf[,2], PD_clean.test$Class)
+PDFperf <- performance(PDFpred,"tpr","fpr")
+
+# plotting ROCs 
+plot(PDDperf)
+plot(PDBperf, add= TRUE, col = 'blueviolet')
+plot(PDBagperf, add = TRUE, col = 'blue')
+plot(PDBoostperf, add = TRUE, col = 'red')
+plot(PDFperf, add=TRUE, col = 'darkgreen')
+
+# line 
+abline(0,1)
+
+# legend
+legend("bottomright", legend = c("Decision Tree", "Naive Bayes", "Bagging", "Boosting", "Random Forest"), col = c('black', 'blueviolet', 'blue', 'red', 'darkgreen'), lty = 1)
+```
+
+```{r}
+# AUC Scores 
+# Decision Tree
+dauc = performance(PDDpred, "auc")
+# Naive Bayes
+Bauc = performance(PDBpred, "auc")
+# Bagging
+Bagauc = performance(PDBagpred, "auc")
+# Boosting
+Boostauc = performance(PDBoostpred, "auc")
+# Random Forest 
+Fauc = performance(PDFpred, "auc")
+
+AUC_table <- data.frame(
+  Classifer = c("Decision Tree", "Naive Bayes", "Bagging", "Boosting", "Random Forest"),
+  # All AUC Scores
+  AUC = c(as.numeric(dauc@y.values),
+          as.numeric(Bauc@y.values),
+          as.numeric(Bagauc@y.values),
+          as.numeric(Boostauc@y.values),
+          as.numeric(Fauc@y.values)),
+  # Each table is a confusion matrix
+  Accuracy = c(sum(diag(t1))/sum(t1) * 100,
+               sum(diag(t2))/sum(t2) * 100,
+               sum(diag(t3))/sum(t3) * 100,
+               sum(diag(t4))/sum(t4) * 100,
+               sum(diag(t5))/sum(t5) * 100
+               )
+)
+AUC_table
+```
+
+The best classification accuracy for Phishing and legitimate websites is 75.16% by the Bagging Classifier. In addition, it also contains the highest AUC score of 0.76.
+
+By the AUC criterion, Bagging is the 'best' Classifier. Notably, Random Forest and Boosting are strong performers with high Accuracy and AUC score.
+
+Surprisingly, the Decision Tree performed reasonably well in comparison to the ensemble methods. Naive Bayes, unfortunately perform the weakest; the lowest accuracy and lowest AUC score.
+
+### Investigative Section
+
+#### Attribute Importance
+
+#### i. Decision Tree
+
+```{r}
+print(summary(PD.tree))
+```
+
+The three important attributes in this decision tree is A01, A23 and A18. The reason why all other website attributes can be omitted is that the algorithm greedily finds the best splits in the Phishing data, so that the entropy is maximised in the split as measured using the outcome. All other website attributes besides A01, A23 and A18 can be omitted.
+
+#### i. Bagging
+
+```{r}
+PD.bag$importance
+```
+
+The most important attributes contributing from Bagging, in descending order in rank, A01, A23, A22, A18 and A08. Variable importance in this context of bagging shows a lot more higher activity than other website attributes. Given the score for attributes not mentioned to be less than 1, indicates their little to no contribution into the performance.
+
+```{r}
+PD.Boost$importance
+```
+
+Likewise, the ranking of importance is the same as previous models: A01, A23, A22, A18 then A08. Their higher scores indicates their respective involvement on the classification model.
+
+```{r}
+print(PD.rf$importance)
+```
+
+Likewise, the ranking of importance by the Gini score is consistent with the metrics from previous models. The five website attributes A01, A23, A22, A18 then A08 are the most important variables in predicting whether a website will be phishing or legitimate. All the other attributes, from all 4 good classifiers indicates a consistent result of all other attributes could be omitted.
+
+#### Simple Model Creation
+
+Let us now create a classifier that is simple enough for a person to be able to classify whether a site is phishing or legitimate by hand. Let us construct a decision tree with two website attributes; A01 and A23
+
+-   If A01 \< 21.5, its legitimate,
+
+-   else, if A23 \< 1.5, its legitimate
+
+-   else its phishing.
+
+From the previous section, A01 and A23 were two of the three most important variables in the decision tree. Let us code this classifier
+
+```{r}
+Classifier <- function(A01, A23){
+  if (A01 < 21.5){
+    return(0) # Legitimate 
+  } else{
+    if (A23 < 1.5){
+      return(0) # Legitimate 
+    } else {
+      return(1) # Phishing 
+    }
+  }
+}
+```
+
+Perform the Classifier on the test data set
+
+```{r}
+# Create copy of test data.
+Test_data <- PD_clean.test
+# Classifier output goes to the new column prediction 
+Test_data$prediction <- mapply(Classifier, Test_data$A01, Test_data$A23)
+```
+
+Let us create a confusion matrix
+
+```{r}
+# Confusion_matrix
+t6 <- table(Predicted = Test_data$prediction, Actual = Test_data$Class)
+t6
+```
+
+The classification accuracy of my classifier in the test set is **72.61**%
+
+```{r}
+preds = prediction(Test_data$prediction, Test_data$Class)
+# RoC Curve
+roc_curve = performance(preds, "tpr", "fpr")
+plot(roc_curve, col = 'green', lwd = 2)
+plot(PDDperf, add = TRUE ,col = 'black', lwd = 2)
+abline(0,1)
+# Legend 
+legend("bottomright", 
+       legend = c("Decision Tree", "My Own Classifier"), 
+       col = c('black', 'green'), lty = 1)
+```
+
+```{r}
+Mauc = performance(preds, "auc")
+# Add the results to our current AUC table 
+AUC_table[nrow(AUC_table) + 1,] = c('MyClassifier',
+                                    Mauc@y.values, 
+                                    sum(diag(t6))/sum(t6) * 100) 
+AUC_table
+```
+
+Although my classifier is simple, it has performed reasonably well compared to other classifiers. It has performed slightly worst than the decision tree classifier, however it is a stronger classifier than the Naive Bayes classifier. The AUC score is 0.705 and the classification accuracy is 72.61%
+
+### Optimal Tree-based Classifier
+
+Let us attempt to improve upon the Bagging Classifier by cross validating.
+
+```{r}
+set.seed(1) # For repeatiblity 
+# Create Bagging Model 
+PD2.bag = bagging(Class ~ A01 + A08 + A18 + A22 + A23, 
+                  data = PD_clean.train, 
+                  mfinals = 3, 
+                  trControl = trainControl(method = "cv", number = 10),
+                  nbagg = 100)
+```
+
+```{r}
+PDDpred.bag = predict.bagging(PD2.bag, PD_clean.test)
+# Predicted Class from Bagging Model 
+pred_class = as.factor(PDDpred.bag$class)
+# Confusion Matrix
+t7 = PDDpred.bag$confusion
+t7
+```
+
+```{r}
+# Default Bagging Performance 
+PDBagpred <- prediction(PDpred.bag$prob[,2], PD_clean.test$Class)
+PDBagperf <- performance(PDBagpred,"tpr","fpr")
+# Cross Validated Bagging Performance
+PDCVBagpred <- prediction(PDDpred.bag$prob[,2], PD_clean.test$Class)
+PDCVBagperf <- performance(PDCVBagpred,"tpr","fpr")
+```
+
+```{r}
+# plotting ROCs 
+plot(PDBagperf, col = 'blue', lwd = 2)
+plot(PDCVBagperf, add = TRUE, col = 'gold', lwd = 3)
+
+# line 
+abline(0,1)
+
+# legend
+legend("bottomright", legend = c("Bagging", "CV Bagging"), col = c('blue', 'gold'), lty = 1)
+```
+
+```{r}
+CVauc = performance(PDCVBagpred, "auc")
+# Add the results to our current AUC table 
+AUC_table[nrow(AUC_table) + 1,] = c('CV Bagging',
+                                    CVauc@y.values, 
+                                    sum(diag(t7))/sum(t7) * 100) 
+AUC_table
+```
+
+Interestingly the Cross validation Bagging Classifier has improve on the classification accuracy (76.43%) compared to Bagging (75.15%). However AUC score has decreased slightly of 0.755 compared to the Bagging 0.763.
+
+The attributes I chose in this model are A01, A23, A22, A18 and A08. These feature selections I believe improves upon the model's performance. Not only it reduces the computational complexity by reducing all the other website features, but it improves on the interpretability by focusing on the most important features and removing noise or irrelevant information. As indicated from the previous sections, these attributes contribute the most in terms of classifying phishing and legitimate website.
+
+However, with the current results, it is unclear that the model has overall improved due to the reduction of the AUC score.
+
+### Artificial Neural Network
+
+In this Neural Network, we will utilise 5 website attributes, based on their importance. That is, A01, A08, A18, A22 and A23. We will utilise Abishek's improved solution method to classify phishing websites from Applied Session 09.
+
+```{r}
+suppressWarnings({require(neuralnet, quietly = TRUE)})
+```
+
+```{r}
+# Create a new copy of PD dataset 
+PD2 <- PD
+# Remove NAs
+PD2 = PD2[complete.cases(PD2),]
+PD2$Class = as.numeric(PD2$Class)
+```
+
+#### Training and test sets
+
+```{r}
+set.seed(31484808)
+train.row = sample(1:nrow(PD2), 0.7*nrow(PD2))
+PD2.train = PD2[train.row,]
+PD2.test = PD2[-train.row,]
+# Binomial Classification: Predict the probability of belong to class Phishing (1) and if the probability is less than 0.5, consider it predicted as legitimate (0)
+# Create ANN
+PD2.nn = neuralnet(Class ~ A01 + A08 + A18 + A22 + A23, PD2.train, hidden = 3, linear.output = FALSE)
+```
+
+```{r}
+# From attribute importance, we use A01, A08, A18, A22 and A23
+prob = compute(PD2.nn, PD2.test[c(1, 8, 18, 22, 23)])
+prob.results = prob$net.result
+ANNpred = ifelse(prob.results > 0.5, 1, 0)
+```
+
+```{r}
+t8 = table(observed = PD2.test$Class, predicted = ANNpred)
+t8
+```
+
+```{r}
+# Detach Neural net package to avoid $ operator is invalid for atomic vectors 
+detach(package:neuralnet, unload = T)
+```
+
+```{r}
+nn.preds = prediction(ANNpred, PD2.test$Class)
+# ROC Curve for ANN
+ANNperf = performance(nn.preds, "tpr", "fpr")
+plot(ANNperf, col = 'orange', lwd = 2)
+plot(PDDperf, add = TRUE ,col = 'black', lwd = 2)
+abline(0,1)
+# Legend 
+legend("bottomright", legend = c("Decision Tree", "ANN"), col = c('black', 'orange'), lty = 1)
+
+```
+
+```{r}
+ANNauc = performance(nn.preds, "auc")
+# Add the results to our current AUC table 
+AUC_table[nrow(AUC_table) + 1,] = c('ANN',
+                                    ANNauc@y.values, 
+                                    sum(diag(t8))/sum(t8) * 100) 
+AUC_table
+```
+
+Although the classification accuracy is reasonably high, the AUC score is on the lower end. The ANN classifier performed better than Naive Bayes Classifier, however it cannot be said for Decision Tree; deciding whether the metric accuracy or AUC score is more important is contextual.
+
+In this scenario, where we are detecting Phishing websites, the positive case (Class = 1) is much rarer than the legitimate case. A higher accuracy might simply be predicting the majority of cases well, while a higher AUC would indicate model's strength in distinguishing between the two cases. In my opinion, the decision tree is the stronger classifier than the ANN.
+
+### XGBoost Classifier
+
+XGBoost is an another machine learning algorithm that belongs to the ensemble learning category that we have explored in the previous section; It is specifically the gradient boosting framework. It uses decision trees as base learners and employs regularization techniques to improve generalisation.
+
+It is known to be very efficient, compared to ada boosting.
+
+Xgboost builds the predictive model by combining the predictions of multiple models, in our case, decision trees, in an iterative manner.
+
+It works by sequentially adding weak learners to the ensemble, with each learner focusing on correcting the errors made by the existing ones.
+
+More information can be found in <https://www.simplilearn.com/what-is-xgboost-algorithm-in-machine-learning-article>
+
+The R package regarding XGBoost info: <https://xgboost.readthedocs.io/en/stable/R-package/xgboostPresentation.html>
+
+My approach is based on <https://www.projectpro.io/recipes/apply-xgboost-for-classification-r>
+
+```{r}
+library(xgboost)
+```
+
+#### Train and Test Data
+
+```{r}
+# Define Independent and Dependent Variables
+X_train = data.matrix(PD_clean.train[, -ncol(PD_clean)]) # Exlude Class & as a matrix 
+Y_train = PD_clean.train[, ncol(PD_clean)] # Only Class
+
+X_test = data.matrix(PD_clean.test[, -ncol(PD_clean)]) # Exlude Class & as a matrix
+Y_test = PD_clean.test[, ncol(PD_clean)] # Only Class 
+```
+
+Convert the train and test data into XGBoost matrix type
+
+```{r}
+xgboost_train = xgb.DMatrix(data = X_train, label = Y_train)
+xgboost_test = xgb.DMatrix(data = X_test, label = Y_test)
+```
+
+Create XGBoost Model
+
+```{r}
+PDXGBoost <- xgboost(data = xgboost_train,    # the data   
+                 max.depth = 7,
+                 eta = 0.1,     # learning rate
+                 nrounds= 50,)  # max number of boosting iterations
+
+```
+
+Make predictions on the test data set
+
+```{r}
+XGBpred = predict(PDXGBoost, xgboost_test)
+# Convert predicted values into factor values 
+XGBpred = as.factor((levels(Y_test))[round(XGBpred)])
+```
+
+```{r}
+conf_mat = confusionMatrix(Y_test, XGBpred)
+print(conf_mat)
+```
+
+Comparatively, it has performed better than ANN, Bayes Naive and my own simple classifier in terms of accuracy. However, it is not as a better performer than decision tree, Bagging and 'Ada' Boosting.
+
+### Appendix
+
+A modified version of the PhiUSIIL Phishing data, hosted by the UCI Machine Learning Archive <https://archive.ics.uci.edu/dataset/967/phiusiil+phishing+url+dataset>.
+
+A research paper based on this data is available here <https://doi.org/10.1016/j.cose.2023.103545>.
+
+XGBoost approach:
+
+<https://www.projectpro.io/recipes/apply-xgboost-for-classification-r>
+
+XGBoost info
+
+<https://www.simplilearn.com/what-is-xgboost-algorithm-in-machine-learning-article>
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
